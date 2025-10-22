@@ -13,10 +13,15 @@
 #define SOFTENING 5.0 // Softening factor to prevent extreme forces at close distances
 #define TIME_STEP 0.1
 #define BODY_RADIUS 5
+#define MAX_VELOCITY 50.0 // Maximum velocity to prevent runaway speeds
+#define MAX_MASS 50000.0 // Maximum mass to prevent instability
+#define MAX_RADIUS 100.0 // Maximum body radius
 
 // Global window dimensions (can be changed when resized)
 int window_width = INITIAL_WINDOW_WIDTH;
 int window_height = INITIAL_WINDOW_HEIGHT;
+bool simulation_paused = false;
+bool warning_shown = false;
 
 typedef struct {
     double x, y;
@@ -98,6 +103,18 @@ void update_bodies() {
         bodies[i].vx += bodies[i].ax * TIME_STEP;
         bodies[i].vy += bodies[i].ay * TIME_STEP;
         
+        // Clamp velocity to prevent runaway speeds
+        double speed = sqrt(bodies[i].vx * bodies[i].vx + bodies[i].vy * bodies[i].vy);
+        if (speed > MAX_VELOCITY) {
+            double scale = MAX_VELOCITY / speed;
+            bodies[i].vx *= scale;
+            bodies[i].vy *= scale;
+            if (!warning_shown) {
+                printf("WARNING: Body %d velocity clamped (was %.2f, now %.2f)\n", i, speed, MAX_VELOCITY);
+                warning_shown = true;
+            }
+        }
+        
         // Update position
         bodies[i].x += bodies[i].vx * TIME_STEP;
         bodies[i].y += bodies[i].vy * TIME_STEP;
@@ -108,6 +125,35 @@ void update_bodies() {
         if (bodies[i].y < 0) bodies[i].y = window_height;
         if (bodies[i].y > window_height) bodies[i].y = 0;
     }
+}
+
+// Check for unstable simulation conditions
+bool check_stability() {
+    int active_count = 0;
+    for (int i = 0; i < body_count; i++) {
+        if (!bodies[i].active) continue;
+        active_count++;
+        
+        // Check for NaN or infinite values
+        if (isnan(bodies[i].x) || isnan(bodies[i].y) || 
+            isnan(bodies[i].vx) || isnan(bodies[i].vy) ||
+            isinf(bodies[i].x) || isinf(bodies[i].y) ||
+            isinf(bodies[i].vx) || isinf(bodies[i].vy)) {
+            printf("ERROR: Body %d has invalid values! Pausing simulation.\n", i);
+            printf("  Position: (%.2f, %.2f), Velocity: (%.2f, %.2f)\n", 
+                   bodies[i].x, bodies[i].y, bodies[i].vx, bodies[i].vy);
+            return false;
+        }
+        
+        // Check if body is far outside window bounds
+        if (bodies[i].x < -1000 || bodies[i].x > window_width + 1000 ||
+            bodies[i].y < -1000 || bodies[i].y > window_height + 1000) {
+            printf("WARNING: Body %d is far from visible area at (%.1f, %.1f)\n", 
+                   i, bodies[i].x, bodies[i].y);
+        }
+    }
+    
+    return true;
 }
 
 // Check and handle collisions (merge bodies)
@@ -143,12 +189,26 @@ void handle_collisions() {
                 
                 // Calculate new velocity using conservation of momentum
                 double total_mass = larger->mass + smaller->mass;
+                
+                // Check if mass exceeds safe limit
+                if (total_mass > MAX_MASS) {
+                    printf("WARNING: Mass limit reached! Body %d mass clamped at %.1f (would be %.1f)\n", 
+                           larger_idx, MAX_MASS, total_mass);
+                    total_mass = MAX_MASS;
+                    simulation_paused = true;
+                }
+                
                 larger->vx = (larger->mass * larger->vx + smaller->mass * smaller->vx) / total_mass;
                 larger->vy = (larger->mass * larger->vy + smaller->mass * smaller->vy) / total_mass;
                 
                 // Add masses together
                 larger->mass = total_mass;
                 larger->radius = BODY_RADIUS + (larger->mass / 200);
+                
+                // Clamp radius to prevent overflow
+                if (larger->radius > MAX_RADIUS) {
+                    larger->radius = MAX_RADIUS;
+                }
                 
                 // Update color based on mass ratio (blend colors)
                 double ratio = smaller->mass / total_mass;
@@ -296,11 +356,16 @@ int main(int argc, char *argv[]) {
     SDL_Event event;
     
     printf("Gravity Simulator with Collision Detection:\n");
+    printf("Controls:\n");
     printf("- Left Click: Add small body\n");
     printf("- Right Click: Add large body\n");
+    printf("- P: Pause/Resume simulation\n");
     printf("- Space: Reset simulation\n");
     printf("- ESC: Exit\n");
-    printf("- Bodies merge on collision (conservation of momentum)\n\n");
+    printf("\nFeatures:\n");
+    printf("- Bodies merge on collision (conservation of momentum)\n");
+    printf("- Auto-pause on extreme conditions with warnings\n");
+    printf("- Maximum velocity: %.0f, Maximum mass: %.0f\n\n", MAX_VELOCITY, MAX_MASS);
     
     while (running) {
         // Handle events
@@ -321,7 +386,13 @@ int main(int argc, char *argv[]) {
                 }
                 else if (event.key.keysym.sym == SDLK_SPACE) {
                     init_bodies();
+                    simulation_paused = false;
+                    warning_shown = false;
                     printf("Simulation reset!\n");
+                }
+                else if (event.key.keysym.sym == SDLK_p) {
+                    simulation_paused = !simulation_paused;
+                    printf("Simulation %s\n", simulation_paused ? "PAUSED" : "RESUMED");
                 }
             }
             else if (event.type == SDL_MOUSEBUTTONDOWN) {
@@ -339,10 +410,18 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // Physics update
-        calculate_forces();
-        update_bodies();
-        handle_collisions();
+        // Physics update (only if not paused)
+        if (!simulation_paused) {
+            // Check stability before updating
+            if (!check_stability()) {
+                simulation_paused = true;
+                printf("Simulation automatically paused due to instability. Press 'P' to resume or Space to reset.\n");
+            } else {
+                calculate_forces();
+                update_bodies();
+                handle_collisions();
+            }
+        }
         
         // Render with gradient background
         // Deep space gradient (dark blue to black)
@@ -356,6 +435,28 @@ int main(int argc, char *argv[]) {
         }
         
         render_bodies(renderer);
+        
+        // Draw pause indicator if paused
+        if (simulation_paused) {
+            SDL_SetRenderDrawColor(renderer, 255, 255, 0, 200);
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            
+            // Draw "PAUSED" in the center using rectangles
+            int center_x = window_width / 2;
+            int center_y = window_height / 2;
+            
+            // Simple pause bars
+            SDL_Rect bar1 = {center_x - 30, center_y - 40, 20, 80};
+            SDL_Rect bar2 = {center_x + 10, center_y - 40, 20, 80};
+            SDL_RenderFillRect(renderer, &bar1);
+            SDL_RenderFillRect(renderer, &bar2);
+            
+            // Border around pause symbol
+            SDL_SetRenderDrawColor(renderer, 255, 200, 0, 255);
+            SDL_RenderDrawRect(renderer, &bar1);
+            SDL_RenderDrawRect(renderer, &bar2);
+        }
+        
         SDL_RenderPresent(renderer);
         
         // Delay to control frame rate
