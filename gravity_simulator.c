@@ -1,4 +1,5 @@
 
+#include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -18,6 +19,7 @@ typedef struct {
     double vx, vy;
     double ax, ay;
     double mass;
+    double radius; // Collision radius
     bool active;
     Uint8 r, g, b; // Color
 } Body;
@@ -38,6 +40,7 @@ void init_bodies() {
         bodies[i].ax = 0;
         bodies[i].ay = 0;
         bodies[i].mass = 100 + rand() % 900;
+        bodies[i].radius = BODY_RADIUS + (bodies[i].mass / 200);
         bodies[i].active = true;
         bodies[i].r = rand() % 256;
         bodies[i].g = rand() % 256;
@@ -103,6 +106,62 @@ void update_bodies() {
     }
 }
 
+// Check and handle collisions (merge bodies)
+void handle_collisions() {
+    for (int i = 0; i < body_count; i++) {
+        if (!bodies[i].active) continue;
+        
+        for (int j = i + 1; j < body_count; j++) {
+            if (!bodies[j].active) continue;
+            
+            double dx = bodies[j].x - bodies[i].x;
+            double dy = bodies[j].y - bodies[i].y;
+            double dist = sqrt(dx * dx + dy * dy);
+            
+            // Check if bodies are colliding
+            if (dist < bodies[i].radius + bodies[j].radius) {
+                // Merge the smaller body into the larger one
+                // Conservation of momentum
+                Body *larger, *smaller;
+                int larger_idx, smaller_idx;
+                
+                if (bodies[i].mass >= bodies[j].mass) {
+                    larger = &bodies[i];
+                    smaller = &bodies[j];
+                    larger_idx = i;
+                    smaller_idx = j;
+                } else {
+                    larger = &bodies[j];
+                    smaller = &bodies[i];
+                    larger_idx = j;
+                    smaller_idx = i;
+                }
+                
+                // Calculate new velocity using conservation of momentum
+                double total_mass = larger->mass + smaller->mass;
+                larger->vx = (larger->mass * larger->vx + smaller->mass * smaller->vx) / total_mass;
+                larger->vy = (larger->mass * larger->vy + smaller->mass * smaller->vy) / total_mass;
+                
+                // Add masses together
+                larger->mass = total_mass;
+                larger->radius = BODY_RADIUS + (larger->mass / 200);
+                
+                // Update color based on mass ratio (blend colors)
+                double ratio = smaller->mass / total_mass;
+                larger->r = (Uint8)(larger->r * (1 - ratio) + smaller->r * ratio);
+                larger->g = (Uint8)(larger->g * (1 - ratio) + smaller->g * ratio);
+                larger->b = (Uint8)(larger->b * (1 - ratio) + smaller->b * ratio);
+                
+                // Deactivate the absorbed body
+                smaller->active = false;
+                
+                printf("Collision! Body %d absorbed body %d (new mass: %.1f)\n", 
+                       larger_idx, smaller_idx, larger->mass);
+            }
+        }
+    }
+}
+
 // Draw a filled circle
 void draw_circle(SDL_Renderer *renderer, int cx, int cy, int radius) {
     for (int dy = -radius; dy <= radius; dy++) {
@@ -122,9 +181,8 @@ void render_bodies(SDL_Renderer *renderer) {
         // Set color based on body
         SDL_SetRenderDrawColor(renderer, bodies[i].r, bodies[i].g, bodies[i].b, 255);
         
-        // Draw body as a circle with size based on mass
-        int radius = BODY_RADIUS + (int)(bodies[i].mass / 200);
-        draw_circle(renderer, (int)bodies[i].x, (int)bodies[i].y, radius);
+        // Draw body as a circle using its radius
+        draw_circle(renderer, (int)bodies[i].x, (int)bodies[i].y, (int)bodies[i].radius);
     }
 }
 
@@ -138,6 +196,7 @@ void add_body(int x, int y, int mass) {
         bodies[body_count].ax = 0;
         bodies[body_count].ay = 0;
         bodies[body_count].mass = mass;
+        bodies[body_count].radius = BODY_RADIUS + (mass / 200);
         bodies[body_count].active = true;
         bodies[body_count].r = rand() % 256;
         bodies[body_count].g = rand() % 256;
@@ -185,11 +244,12 @@ int main(int argc, char *argv[]) {
     bool running = true;
     SDL_Event event;
     
-    printf("Gravity Simulator Controls:\n");
+    printf("Gravity Simulator with Collision Detection:\n");
     printf("- Left Click: Add small body\n");
     printf("- Right Click: Add large body\n");
     printf("- Space: Reset simulation\n");
-    printf("- ESC: Exit\n\n");
+    printf("- ESC: Exit\n");
+    printf("- Bodies merge on collision (conservation of momentum)\n\n");
     
     while (running) {
         // Handle events
@@ -224,6 +284,7 @@ int main(int argc, char *argv[]) {
         // Physics update
         calculate_forces();
         update_bodies();
+        handle_collisions();
         
         // Render
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Black background
