@@ -5,49 +5,39 @@
 #include <math.h>
 #include <time.h>
 #include <stdbool.h>
-
 #define INITIAL_WINDOW_WIDTH 1200
 #define INITIAL_WINDOW_HEIGHT 800
 #define MAX_BODIES 100
-#define G 0.5 // Adjusted gravitational constant for visible simulation
-#define SOFTENING 5.0 // Softening factor to prevent extreme forces at close distances
+#define G 0.5
+#define SOFTENING 5.0
 #define TIME_STEP 0.1
 #define BODY_RADIUS 5
-#define MAX_VELOCITY 50.0 // Maximum velocity to prevent runaway speeds
-#define MAX_MASS 50000.0 // Maximum mass to prevent instability
-#define MAX_RADIUS 100.0 // Maximum body radius
-
-// Global window dimensions (can be changed when resized)
+#define MAX_VELOCITY 50.0
+#define MAX_MASS 50000.0
+#define MAX_RADIUS 100.0
 int window_width = INITIAL_WINDOW_WIDTH;
 int window_height = INITIAL_WINDOW_HEIGHT;
 bool simulation_paused = false;
 bool warning_shown = false;
-
-// Drag-to-launch variables
 bool is_dragging = false;
 int drag_start_x = 0;
 int drag_start_y = 0;
 int drag_current_x = 0;
 int drag_current_y = 0;
-
 typedef struct {
     double x, y;
     double vx, vy;
     double ax, ay;
     double mass;
-    double radius; // Collision radius
+    double radius;
     bool active;
-    Uint8 r, g, b; // Color
+    Uint8 r, g, b;
 } Body;
-
 Body bodies[MAX_BODIES];
 int body_count = 0;
-
-// Initialize bodies with random positions and velocities
 void init_bodies() {
     srand(time(NULL));
-    body_count = 5;
-    
+    body_count = 5;   
     for (int i = 0; i < body_count; i++) {
         bodies[i].x = rand() % window_width;
         bodies[i].y = rand() % window_height;
@@ -64,16 +54,13 @@ void init_bodies() {
     }
 }
 
-// Calculate gravitational forces between all bodies
 void calculate_forces() {
-    // Reset accelerations
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         bodies[i].ax = 0;
         bodies[i].ay = 0;
     }
     
-    // Calculate pairwise forces
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         
@@ -85,14 +72,11 @@ void calculate_forces() {
             double dist_sq = dx * dx + dy * dy + SOFTENING * SOFTENING;
             double dist = sqrt(dist_sq);
             
-            // Gravitational force magnitude
             double force = G * bodies[i].mass * bodies[j].mass / dist_sq;
             
-            // Force components
             double fx = force * dx / dist;
             double fy = force * dy / dist;
             
-            // Apply force to both bodies (Newton's third law)
             bodies[i].ax += fx / bodies[i].mass;
             bodies[i].ay += fy / bodies[i].mass;
             bodies[j].ax -= fx / bodies[j].mass;
@@ -101,16 +85,13 @@ void calculate_forces() {
     }
 }
 
-// Update positions and velocities
 void update_bodies() {
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         
-        // Update velocity
         bodies[i].vx += bodies[i].ax * TIME_STEP;
         bodies[i].vy += bodies[i].ay * TIME_STEP;
         
-        // Clamp velocity to prevent runaway speeds
         double speed = sqrt(bodies[i].vx * bodies[i].vx + bodies[i].vy * bodies[i].vy);
         if (speed > MAX_VELOCITY) {
             double scale = MAX_VELOCITY / speed;
@@ -122,11 +103,9 @@ void update_bodies() {
             }
         }
         
-        // Update position
         bodies[i].x += bodies[i].vx * TIME_STEP;
         bodies[i].y += bodies[i].vy * TIME_STEP;
         
-        // Wrap around screen edges
         if (bodies[i].x < 0) bodies[i].x = window_width;
         if (bodies[i].x > window_width) bodies[i].x = 0;
         if (bodies[i].y < 0) bodies[i].y = window_height;
@@ -134,14 +113,12 @@ void update_bodies() {
     }
 }
 
-// Check for unstable simulation conditions
 bool check_stability() {
     int active_count = 0;
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         active_count++;
         
-        // Check for NaN or infinite values
         if (isnan(bodies[i].x) || isnan(bodies[i].y) || 
             isnan(bodies[i].vx) || isnan(bodies[i].vy) ||
             isinf(bodies[i].x) || isinf(bodies[i].y) ||
@@ -152,7 +129,6 @@ bool check_stability() {
             return false;
         }
         
-        // Check if body is far outside window bounds
         if (bodies[i].x < -1000 || bodies[i].x > window_width + 1000 ||
             bodies[i].y < -1000 || bodies[i].y > window_height + 1000) {
             printf("WARNING: Body %d is far from visible area at (%.1f, %.1f)\n", 
@@ -163,7 +139,6 @@ bool check_stability() {
     return true;
 }
 
-// Check and handle collisions (merge bodies)
 void handle_collisions() {
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
@@ -175,10 +150,7 @@ void handle_collisions() {
             double dy = bodies[j].y - bodies[i].y;
             double dist = sqrt(dx * dx + dy * dy);
             
-            // Check if bodies are colliding
             if (dist < bodies[i].radius + bodies[j].radius) {
-                // Merge the smaller body into the larger one
-                // Conservation of momentum
                 Body *larger, *smaller;
                 int larger_idx, smaller_idx;
                 
@@ -194,10 +166,8 @@ void handle_collisions() {
                     smaller_idx = i;
                 }
                 
-                // Calculate new velocity using conservation of momentum
                 double total_mass = larger->mass + smaller->mass;
                 
-                // Check if mass exceeds safe limit
                 if (total_mass > MAX_MASS) {
                     printf("WARNING: Mass limit reached! Body %d mass clamped at %.1f (would be %.1f)\n", 
                            larger_idx, MAX_MASS, total_mass);
@@ -208,22 +178,18 @@ void handle_collisions() {
                 larger->vx = (larger->mass * larger->vx + smaller->mass * smaller->vx) / total_mass;
                 larger->vy = (larger->mass * larger->vy + smaller->mass * smaller->vy) / total_mass;
                 
-                // Add masses together
                 larger->mass = total_mass;
                 larger->radius = BODY_RADIUS + (larger->mass / 200);
                 
-                // Clamp radius to prevent overflow
                 if (larger->radius > MAX_RADIUS) {
                     larger->radius = MAX_RADIUS;
                 }
                 
-                // Update color based on mass ratio (blend colors)
                 double ratio = smaller->mass / total_mass;
                 larger->r = (Uint8)(larger->r * (1 - ratio) + smaller->r * ratio);
                 larger->g = (Uint8)(larger->g * (1 - ratio) + smaller->g * ratio);
                 larger->b = (Uint8)(larger->b * (1 - ratio) + smaller->b * ratio);
                 
-                // Deactivate the absorbed body
                 smaller->active = false;
                 
                 printf("Collision! Body %d absorbed body %d (new mass: %.1f)\n", 
@@ -233,7 +199,6 @@ void handle_collisions() {
     }
 }
 
-// Draw a filled circle with smooth edges
 void draw_circle(SDL_Renderer *renderer, int cx, int cy, int radius) {
     for (int dy = -radius; dy <= radius; dy++) {
         for (int dx = -radius; dx <= radius; dx++) {
@@ -244,21 +209,17 @@ void draw_circle(SDL_Renderer *renderer, int cx, int cy, int radius) {
     }
 }
 
-// Draw a circle with glow effect
 void draw_glowing_circle(SDL_Renderer *renderer, int cx, int cy, int radius, Uint8 r, Uint8 g, Uint8 b) {
-    // Draw outer glow (multiple layers with decreasing opacity)
     for (int glow = 3; glow > 0; glow--) {
         int glow_radius = radius + glow * 3;
-        Uint8 alpha = 30 / glow; // Decreasing opacity for outer layers
+        Uint8 alpha = 30 / glow;
         SDL_SetRenderDrawColor(renderer, r, g, b, alpha);
         
-        // Draw glow ring
         for (int angle = 0; angle < 360; angle += 5) {
             double rad = angle * M_PI / 180.0;
             int x = cx + (int)(glow_radius * cos(rad));
             int y = cy + (int)(glow_radius * sin(rad));
             
-            // Draw small circle for glow point
             for (int dy = -2; dy <= 2; dy++) {
                 for (int dx = -2; dx <= 2; dx++) {
                     if (dx * dx + dy * dy <= 4) {
@@ -269,9 +230,7 @@ void draw_glowing_circle(SDL_Renderer *renderer, int cx, int cy, int radius, Uin
         }
     }
     
-    // Draw main body with gradient
     for (int layer = radius; layer > 0; layer--) {
-        // Brighten towards center
         float brightness = 1.0 + (radius - layer) * 0.3 / radius;
         Uint8 bright_r = (Uint8)fmin(255, r * brightness);
         Uint8 bright_g = (Uint8)fmin(255, g * brightness);
@@ -282,19 +241,15 @@ void draw_glowing_circle(SDL_Renderer *renderer, int cx, int cy, int radius, Uin
     }
 }
 
-// Render all bodies with improved graphics
 void render_bodies(SDL_Renderer *renderer) {
-    // Enable alpha blending for glow effects
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         
-        // Draw body with glow effect
         draw_glowing_circle(renderer, (int)bodies[i].x, (int)bodies[i].y, 
                            (int)bodies[i].radius, bodies[i].r, bodies[i].g, bodies[i].b);
         
-        // Draw velocity indicator (small trail line)
         if (bodies[i].vx != 0 || bodies[i].vy != 0) {
             SDL_SetRenderDrawColor(renderer, bodies[i].r, bodies[i].g, bodies[i].b, 128);
             int trail_x = (int)(bodies[i].x - bodies[i].vx * 5);
@@ -323,17 +278,14 @@ void add_body_with_velocity(int x, int y, int mass, double vx, double vy) {
     }
 }
 
-// Add a new body at mouse position (stationary)
 void add_body(int x, int y, int mass) {
     add_body_with_velocity(x, y, mass, 0, 0);
 }
 
-// Delete a body at the given position (if clicked on)
 int delete_body_at(int x, int y) {
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         
-        // Check if click is within body's radius
         double dx = x - bodies[i].x;
         double dy = y - bodies[i].y;
         double dist = sqrt(dx * dx + dy * dy);
@@ -345,17 +297,15 @@ int delete_body_at(int x, int y) {
             return i;
         }
     }
-    return -1; // No body found at that position
+    return -1;
 }
 
 int main(int argc, char *argv[]) {
-    // Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("SDL initialization failed: %s\n", SDL_GetError());
         return 1;
     }
     
-    // Create window (resizable)
     SDL_Window *window = SDL_CreateWindow(
         "Gravity Simulator - Click to add bodies, Space to reset, Resize window",
         SDL_WINDOWPOS_CENTERED,
@@ -371,7 +321,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    // Create renderer
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
         printf("Renderer creation failed: %s\n", SDL_GetError());
@@ -380,10 +329,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    // Initialize bodies
     init_bodies();
     
-    // Main loop
     bool running = true;
     SDL_Event event;
     
@@ -402,7 +349,6 @@ int main(int argc, char *argv[]) {
     printf("- Maximum velocity: %.0f, Maximum mass: %.0f\n\n", MAX_VELOCITY, MAX_MASS);
     
     while (running) {
-        // Handle events
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
@@ -434,7 +380,6 @@ int main(int argc, char *argv[]) {
                 SDL_GetMouseState(&x, &y);
                 
                 if (event.button.button == SDL_BUTTON_LEFT) {
-                    // Start dragging
                     is_dragging = true;
                     drag_start_x = x;
                     drag_start_y = y;
@@ -453,11 +398,9 @@ int main(int argc, char *argv[]) {
                     int x, y;
                     SDL_GetMouseState(&x, &y);
                     
-                    // Calculate velocity from drag distance
-                    double vx = (drag_start_x - x) / 10.0; // Scale down for reasonable velocities
+                    double vx = (drag_start_x - x) / 10.0;
                     double vy = (drag_start_y - y) / 10.0;
                     
-                    // Add body with calculated velocity
                     add_body_with_velocity(drag_start_x, drag_start_y, 500, vx, vy);
                     
                     double speed = sqrt(vx * vx + vy * vy);
@@ -474,9 +417,7 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // Physics update (only if not paused)
         if (!simulation_paused) {
-            // Check stability before updating
             if (!check_stability()) {
                 simulation_paused = true;
                 printf("Simulation automatically paused due to instability. Press 'P' to resume or Space to reset.\n");
@@ -487,8 +428,6 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // Render with gradient background
-        // Deep space gradient (dark blue to black)
         for (int y = 0; y < window_height; y++) {
             float ratio = (float)y / window_height;
             Uint8 r = (Uint8)(5 * (1 - ratio));
@@ -500,19 +439,15 @@ int main(int argc, char *argv[]) {
         
         render_bodies(renderer);
         
-        // Draw drag trajectory preview
         if (is_dragging) {
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             
-            // Draw line from start to current position
             SDL_SetRenderDrawColor(renderer, 0, 255, 255, 200);
             SDL_RenderDrawLine(renderer, drag_start_x, drag_start_y, drag_current_x, drag_current_y);
             
-            // Draw thicker line by drawing multiple parallel lines
             SDL_RenderDrawLine(renderer, drag_start_x + 1, drag_start_y, drag_current_x + 1, drag_current_y);
             SDL_RenderDrawLine(renderer, drag_start_x, drag_start_y + 1, drag_current_x, drag_current_y + 1);
             
-            // Draw arrowhead at start position (where body will be created)
             SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
             for (int r = 0; r < 5; r++) {
                 for (int angle = 0; angle < 360; angle += 30) {
@@ -523,12 +458,10 @@ int main(int argc, char *argv[]) {
                 }
             }
             
-            // Show velocity magnitude
             double vx = (drag_start_x - drag_current_x) / 10.0;
             double vy = (drag_start_y - drag_current_y) / 10.0;
             double speed = sqrt(vx * vx + vy * vy);
             
-            // Draw speed indicator (color changes with speed)
             Uint8 speed_color = (Uint8)fmin(255, speed * 10);
             SDL_SetRenderDrawColor(renderer, speed_color, 255 - speed_color, 100, 150);
             int speed_radius = (int)fmin(20, 5 + speed);
@@ -542,22 +475,18 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // Draw pause indicator if paused
         if (simulation_paused) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 0, 200);
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             
-            // Draw "PAUSED" in the center using rectangles
             int center_x = window_width / 2;
             int center_y = window_height / 2;
             
-            // Simple pause bars
             SDL_Rect bar1 = {center_x - 30, center_y - 40, 20, 80};
             SDL_Rect bar2 = {center_x + 10, center_y - 40, 20, 80};
             SDL_RenderFillRect(renderer, &bar1);
             SDL_RenderFillRect(renderer, &bar2);
             
-            // Border around pause symbol
             SDL_SetRenderDrawColor(renderer, 255, 200, 0, 255);
             SDL_RenderDrawRect(renderer, &bar1);
             SDL_RenderDrawRect(renderer, &bar2);
@@ -565,11 +494,9 @@ int main(int argc, char *argv[]) {
         
         SDL_RenderPresent(renderer);
         
-        // Delay to control frame rate
-        SDL_Delay(16); // ~60 FPS
+        SDL_Delay(16);
     }
     
-    // Cleanup
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
