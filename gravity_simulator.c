@@ -23,6 +23,13 @@ int window_height = INITIAL_WINDOW_HEIGHT;
 bool simulation_paused = false;
 bool warning_shown = false;
 
+// Drag-to-launch variables
+bool is_dragging = false;
+int drag_start_x = 0;
+int drag_start_y = 0;
+int drag_current_x = 0;
+int drag_current_y = 0;
+
 typedef struct {
     double x, y;
     double vx, vy;
@@ -297,13 +304,13 @@ void render_bodies(SDL_Renderer *renderer) {
     }
 }
 
-// Add a new body at mouse position
-void add_body(int x, int y, int mass) {
+// Add a new body at mouse position with velocity
+void add_body_with_velocity(int x, int y, int mass, double vx, double vy) {
     if (body_count < MAX_BODIES) {
         bodies[body_count].x = x;
         bodies[body_count].y = y;
-        bodies[body_count].vx = 0;
-        bodies[body_count].vy = 0;
+        bodies[body_count].vx = vx;
+        bodies[body_count].vy = vy;
         bodies[body_count].ax = 0;
         bodies[body_count].ay = 0;
         bodies[body_count].mass = mass;
@@ -314,6 +321,11 @@ void add_body(int x, int y, int mass) {
         bodies[body_count].b = rand() % 256;
         body_count++;
     }
+}
+
+// Add a new body at mouse position (stationary)
+void add_body(int x, int y, int mass) {
+    add_body_with_velocity(x, y, mass, 0, 0);
 }
 
 // Delete a body at the given position (if clicked on)
@@ -377,13 +389,15 @@ int main(int argc, char *argv[]) {
     
     printf("Gravity Simulator with Collision Detection:\n");
     printf("Controls:\n");
-    printf("- Left Click: Add body\n");
+    printf("- Left Click & Drag: Launch body with velocity\n");
+    printf("  (drag backwards from where you want the body to go)\n");
     printf("- Right Click: Delete body (click on it)\n");
     printf("- P: Pause/Resume simulation\n");
     printf("- Space: Reset simulation\n");
     printf("- ESC: Exit\n");
     printf("\nFeatures:\n");
     printf("- Bodies merge on collision (conservation of momentum)\n");
+    printf("- Drag-to-launch with visual trajectory preview\n");
     printf("- Auto-pause on extreme conditions with warnings\n");
     printf("- Maximum velocity: %.0f, Maximum mass: %.0f\n\n", MAX_VELOCITY, MAX_MASS);
     
@@ -420,14 +434,42 @@ int main(int argc, char *argv[]) {
                 SDL_GetMouseState(&x, &y);
                 
                 if (event.button.button == SDL_BUTTON_LEFT) {
-                    add_body(x, y, 500);
-                    printf("Added body at (%d, %d)\n", x, y);
+                    // Start dragging
+                    is_dragging = true;
+                    drag_start_x = x;
+                    drag_start_y = y;
+                    drag_current_x = x;
+                    drag_current_y = y;
                 }
                 else if (event.button.button == SDL_BUTTON_RIGHT) {
                     int deleted = delete_body_at(x, y);
                     if (deleted == -1) {
                         printf("No body found at (%d, %d)\n", x, y);
                     }
+                }
+            }
+            else if (event.type == SDL_MOUSEBUTTONUP) {
+                if (event.button.button == SDL_BUTTON_LEFT && is_dragging) {
+                    int x, y;
+                    SDL_GetMouseState(&x, &y);
+                    
+                    // Calculate velocity from drag distance
+                    double vx = (drag_start_x - x) / 10.0; // Scale down for reasonable velocities
+                    double vy = (drag_start_y - y) / 10.0;
+                    
+                    // Add body with calculated velocity
+                    add_body_with_velocity(drag_start_x, drag_start_y, 500, vx, vy);
+                    
+                    double speed = sqrt(vx * vx + vy * vy);
+                    printf("Launched body from (%d, %d) with velocity (%.1f, %.1f), speed: %.1f\n", 
+                           drag_start_x, drag_start_y, vx, vy, speed);
+                    
+                    is_dragging = false;
+                }
+            }
+            else if (event.type == SDL_MOUSEMOTION) {
+                if (is_dragging) {
+                    SDL_GetMouseState(&drag_current_x, &drag_current_y);
                 }
             }
         }
@@ -457,6 +499,48 @@ int main(int argc, char *argv[]) {
         }
         
         render_bodies(renderer);
+        
+        // Draw drag trajectory preview
+        if (is_dragging) {
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            
+            // Draw line from start to current position
+            SDL_SetRenderDrawColor(renderer, 0, 255, 255, 200);
+            SDL_RenderDrawLine(renderer, drag_start_x, drag_start_y, drag_current_x, drag_current_y);
+            
+            // Draw thicker line by drawing multiple parallel lines
+            SDL_RenderDrawLine(renderer, drag_start_x + 1, drag_start_y, drag_current_x + 1, drag_current_y);
+            SDL_RenderDrawLine(renderer, drag_start_x, drag_start_y + 1, drag_current_x, drag_current_y + 1);
+            
+            // Draw arrowhead at start position (where body will be created)
+            SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+            for (int r = 0; r < 5; r++) {
+                for (int angle = 0; angle < 360; angle += 30) {
+                    double rad = angle * M_PI / 180.0;
+                    int x = drag_start_x + (int)(r * cos(rad));
+                    int y = drag_start_y + (int)(r * sin(rad));
+                    SDL_RenderDrawPoint(renderer, x, y);
+                }
+            }
+            
+            // Show velocity magnitude
+            double vx = (drag_start_x - drag_current_x) / 10.0;
+            double vy = (drag_start_y - drag_current_y) / 10.0;
+            double speed = sqrt(vx * vx + vy * vy);
+            
+            // Draw speed indicator (color changes with speed)
+            Uint8 speed_color = (Uint8)fmin(255, speed * 10);
+            SDL_SetRenderDrawColor(renderer, speed_color, 255 - speed_color, 100, 150);
+            int speed_radius = (int)fmin(20, 5 + speed);
+            for (int r = 0; r < speed_radius; r++) {
+                for (int angle = 0; angle < 360; angle += 10) {
+                    double rad = angle * M_PI / 180.0;
+                    int x = drag_start_x + (int)(r * cos(rad));
+                    int y = drag_start_y + (int)(r * sin(rad));
+                    SDL_RenderDrawPoint(renderer, x, y);
+                }
+            }
+        }
         
         // Draw pause indicator if paused
         if (simulation_paused) {
