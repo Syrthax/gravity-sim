@@ -1,0 +1,11 @@
+{
+    "code-runner.executorMap": {
+        "cpp": "cd \"$dir\" && clang++ -std=c++17 \"$fileName\" -o \"$fileNameWithoutExt\" && \"$dir/$fileNameWithoutExt\"",
+        "c": "cd \"$dir\" && clang -I/opt/homebrew/include/SDL2 -D_THREAD_SAFE \"$fileName\" -o \"$fileNameWithoutExt\" -L/opt/homebrew/lib -lSDL2 -lm && \"$dir/$fileNameWithoutExt\""
+    },
+    "code-runner.runInTerminal": true,
+    "code-runner.saveFileBeforeRun": true,
+    "code-runner.clearPreviousOutput": false,
+    "code-runner.preserveFocus": false,
+    "code-runner.ignoreSelection": true
+}
