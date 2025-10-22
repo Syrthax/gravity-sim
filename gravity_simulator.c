@@ -6,13 +6,17 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define WINDOW_WIDTH 1200
-#define WINDOW_HEIGHT 800
+#define INITIAL_WINDOW_WIDTH 1200
+#define INITIAL_WINDOW_HEIGHT 800
 #define MAX_BODIES 100
 #define G 0.5 // Adjusted gravitational constant for visible simulation
 #define SOFTENING 5.0 // Softening factor to prevent extreme forces at close distances
 #define TIME_STEP 0.1
 #define BODY_RADIUS 5
+
+// Global window dimensions (can be changed when resized)
+int window_width = INITIAL_WINDOW_WIDTH;
+int window_height = INITIAL_WINDOW_HEIGHT;
 
 typedef struct {
     double x, y;
@@ -33,8 +37,8 @@ void init_bodies() {
     body_count = 5;
     
     for (int i = 0; i < body_count; i++) {
-        bodies[i].x = rand() % WINDOW_WIDTH;
-        bodies[i].y = rand() % WINDOW_HEIGHT;
+        bodies[i].x = rand() % window_width;
+        bodies[i].y = rand() % window_height;
         bodies[i].vx = (rand() % 100 - 50) / 50.0;
         bodies[i].vy = (rand() % 100 - 50) / 50.0;
         bodies[i].ax = 0;
@@ -99,10 +103,10 @@ void update_bodies() {
         bodies[i].y += bodies[i].vy * TIME_STEP;
         
         // Wrap around screen edges
-        if (bodies[i].x < 0) bodies[i].x = WINDOW_WIDTH;
-        if (bodies[i].x > WINDOW_WIDTH) bodies[i].x = 0;
-        if (bodies[i].y < 0) bodies[i].y = WINDOW_HEIGHT;
-        if (bodies[i].y > WINDOW_HEIGHT) bodies[i].y = 0;
+        if (bodies[i].x < 0) bodies[i].x = window_width;
+        if (bodies[i].x > window_width) bodies[i].x = 0;
+        if (bodies[i].y < 0) bodies[i].y = window_height;
+        if (bodies[i].y > window_height) bodies[i].y = 0;
     }
 }
 
@@ -162,7 +166,7 @@ void handle_collisions() {
     }
 }
 
-// Draw a filled circle
+// Draw a filled circle with smooth edges
 void draw_circle(SDL_Renderer *renderer, int cx, int cy, int radius) {
     for (int dy = -radius; dy <= radius; dy++) {
         for (int dx = -radius; dx <= radius; dx++) {
@@ -173,16 +177,63 @@ void draw_circle(SDL_Renderer *renderer, int cx, int cy, int radius) {
     }
 }
 
-// Render all bodies
+// Draw a circle with glow effect
+void draw_glowing_circle(SDL_Renderer *renderer, int cx, int cy, int radius, Uint8 r, Uint8 g, Uint8 b) {
+    // Draw outer glow (multiple layers with decreasing opacity)
+    for (int glow = 3; glow > 0; glow--) {
+        int glow_radius = radius + glow * 3;
+        Uint8 alpha = 30 / glow; // Decreasing opacity for outer layers
+        SDL_SetRenderDrawColor(renderer, r, g, b, alpha);
+        
+        // Draw glow ring
+        for (int angle = 0; angle < 360; angle += 5) {
+            double rad = angle * M_PI / 180.0;
+            int x = cx + (int)(glow_radius * cos(rad));
+            int y = cy + (int)(glow_radius * sin(rad));
+            
+            // Draw small circle for glow point
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    if (dx * dx + dy * dy <= 4) {
+                        SDL_RenderDrawPoint(renderer, x + dx, y + dy);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Draw main body with gradient
+    for (int layer = radius; layer > 0; layer--) {
+        // Brighten towards center
+        float brightness = 1.0 + (radius - layer) * 0.3 / radius;
+        Uint8 bright_r = (Uint8)fmin(255, r * brightness);
+        Uint8 bright_g = (Uint8)fmin(255, g * brightness);
+        Uint8 bright_b = (Uint8)fmin(255, b * brightness);
+        
+        SDL_SetRenderDrawColor(renderer, bright_r, bright_g, bright_b, 255);
+        draw_circle(renderer, cx, cy, layer);
+    }
+}
+
+// Render all bodies with improved graphics
 void render_bodies(SDL_Renderer *renderer) {
+    // Enable alpha blending for glow effects
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
     for (int i = 0; i < body_count; i++) {
         if (!bodies[i].active) continue;
         
-        // Set color based on body
-        SDL_SetRenderDrawColor(renderer, bodies[i].r, bodies[i].g, bodies[i].b, 255);
+        // Draw body with glow effect
+        draw_glowing_circle(renderer, (int)bodies[i].x, (int)bodies[i].y, 
+                           (int)bodies[i].radius, bodies[i].r, bodies[i].g, bodies[i].b);
         
-        // Draw body as a circle using its radius
-        draw_circle(renderer, (int)bodies[i].x, (int)bodies[i].y, (int)bodies[i].radius);
+        // Draw velocity indicator (small trail line)
+        if (bodies[i].vx != 0 || bodies[i].vy != 0) {
+            SDL_SetRenderDrawColor(renderer, bodies[i].r, bodies[i].g, bodies[i].b, 128);
+            int trail_x = (int)(bodies[i].x - bodies[i].vx * 5);
+            int trail_y = (int)(bodies[i].y - bodies[i].vy * 5);
+            SDL_RenderDrawLine(renderer, (int)bodies[i].x, (int)bodies[i].y, trail_x, trail_y);
+        }
     }
 }
 
@@ -212,14 +263,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    // Create window
+    // Create window (resizable)
     SDL_Window *window = SDL_CreateWindow(
-        "Gravity Simulator - Click to add bodies, Space to reset",
+        "Gravity Simulator - Click to add bodies, Space to reset, Resize window",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        WINDOW_WIDTH,
-        WINDOW_HEIGHT,
-        SDL_WINDOW_SHOWN
+        window_width,
+        window_height,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
     );
     
     if (!window) {
@@ -257,6 +308,13 @@ int main(int argc, char *argv[]) {
             if (event.type == SDL_QUIT) {
                 running = false;
             }
+            else if (event.type == SDL_WINDOWEVENT) {
+                if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+                    window_width = event.window.data1;
+                    window_height = event.window.data2;
+                    printf("Window resized to %dx%d\n", window_width, window_height);
+                }
+            }
             else if (event.type == SDL_KEYDOWN) {
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
                     running = false;
@@ -286,9 +344,17 @@ int main(int argc, char *argv[]) {
         update_bodies();
         handle_collisions();
         
-        // Render
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Black background
-        SDL_RenderClear(renderer);
+        // Render with gradient background
+        // Deep space gradient (dark blue to black)
+        for (int y = 0; y < window_height; y++) {
+            float ratio = (float)y / window_height;
+            Uint8 r = (Uint8)(5 * (1 - ratio));
+            Uint8 g = (Uint8)(10 * (1 - ratio));
+            Uint8 b = (Uint8)(25 * (1 - ratio));
+            SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+            SDL_RenderDrawLine(renderer, 0, y, window_width, y);
+        }
+        
         render_bodies(renderer);
         SDL_RenderPresent(renderer);
         
