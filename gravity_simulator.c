@@ -316,6 +316,26 @@ void add_body(int x, int y, int mass) {
     }
 }
 
+// Delete a body at the given position (if clicked on)
+int delete_body_at(int x, int y) {
+    for (int i = 0; i < body_count; i++) {
+        if (!bodies[i].active) continue;
+        
+        // Check if click is within body's radius
+        double dx = x - bodies[i].x;
+        double dy = y - bodies[i].y;
+        double dist = sqrt(dx * dx + dy * dy);
+        
+        if (dist <= bodies[i].radius) {
+            bodies[i].active = false;
+            printf("Deleted body %d (mass: %.1f) at (%.0f, %.0f)\n", 
+                   i, bodies[i].mass, bodies[i].x, bodies[i].y);
+            return i;
+        }
+    }
+    return -1; // No body found at that position
+}
+
 int main(int argc, char *argv[]) {
     // Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -357,8 +377,8 @@ int main(int argc, char *argv[]) {
     
     printf("Gravity Simulator with Collision Detection:\n");
     printf("Controls:\n");
-    printf("- Left Click: Add small body\n");
-    printf("- Right Click: Add large body\n");
+    printf("- Left Click: Add body\n");
+    printf("- Right Click: Delete body (click on it)\n");
     printf("- P: Pause/Resume simulation\n");
     printf("- Space: Reset simulation\n");
     printf("- ESC: Exit\n");
@@ -401,11 +421,13 @@ int main(int argc, char *argv[]) {
                 
                 if (event.button.button == SDL_BUTTON_LEFT) {
                     add_body(x, y, 500);
-                    printf("Added small body at (%d, %d)\n", x, y);
+                    printf("Added body at (%d, %d)\n", x, y);
                 }
                 else if (event.button.button == SDL_BUTTON_RIGHT) {
-                    add_body(x, y, 2000);
-                    printf("Added large body at (%d, %d)\n", x, y);
+                    int deleted = delete_body_at(x, y);
+                    if (deleted == -1) {
+                        printf("No body found at (%d, %d)\n", x, y);
+                    }
                 }
             }
         }
